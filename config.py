@@ -19,8 +19,29 @@ MODEL_DIR.mkdir(exist_ok=True)
 # ─── Decision Logic ───────────────────────────────────────────────────────────
 WINDOW_SECONDS   = 300          # 5-minute windows
 DECISION_OFFSET  = 150          # Decide at T=150s (2:30 remaining)
-EDGE_THRESHOLD   = 0.04         # Need P(UP) > 0.54 or < 0.46 for confident bet
-HIGH_CONF_THRESH = 0.08         # |P - 0.5| > 0.08 = high-confidence call
+
+# ── EV-aware decision parameters ──────────────────────────────────────────────
+# The core signal is: edge = P_model(UP) - implied_up_prob
+# (not P_model vs 0.5 — that compares to neutral, not to what you're paying)
+#
+# Polymarket fee structure: approximately fee = FEE_RATE * min(p, 1-p)
+# This peaks at ~1% at 50/50 and tapers toward zero at extremes.
+# At 80¢ odds:  fee ≈ 0.02 * 0.20 = 0.004 (0.4%)
+# At 95¢ odds:  fee ≈ 0.02 * 0.05 = 0.001 (0.1%)
+# At 50¢ odds:  fee ≈ 0.02 * 0.50 = 0.010 (1.0%)
+FEE_RATE         = 0.02         # 2% fee scaling factor
+
+# Minimum net EV edge required to bet:
+#   net_ev = |P_model - implied| - fee_drag
+# Below this threshold, no model edge is discernible above fee noise.
+MIN_EV_THRESHOLD = 0.02         # 2% net EV required to make a confident bet
+
+# High-confidence threshold — net_ev above this = strong signal call
+HIGH_CONF_EV     = 0.06         # 6% net EV = high-confidence call
+
+# Contra-crowd multiplier: when betting AGAINST the crowd (model disagrees
+# strongly with market odds), we require extra EV margin due to liquidity risk.
+CONTRA_CROWD_EXTRA = 0.01       # Extra 1% EV buffer when going against crowd
 
 # Default weights for ensemble (tuned via stacking later)
 ENSEMBLE_WEIGHTS = {

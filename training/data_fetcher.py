@@ -61,15 +61,20 @@ class DataFetcher:
                 window_start   INTEGER,
                 decision_ts    INTEGER,
                 side           TEXT,
-                p_up           REAL,
-                confidence     REAL,
+                p_model_up     REAL,    -- ensemble P(UP), 0-1
+                raw_edge       REAL,    -- P_model - implied_up (signed)
+                net_ev         REAL,    -- raw_edge minus fee drag on chosen side
+                bet_price      REAL,    -- price per share you're buying at
+                implied_up     REAL,    -- market implied UP probability at T=150
                 p_logistic     REAL,
                 p_xgboost      REAL,
                 p_lstm         REAL,
                 p_bayesian     REAL,
-                implied_up     REAL,
+                ev_up          REAL,    -- EV of buying UP side
+                ev_down        REAL,    -- EV of buying DOWN side
                 resolved_up    INTEGER,
                 correct        INTEGER,
+                realised_ev    REAL,    -- actual P&L per unit bet
                 features_json  TEXT
             )
         """)
@@ -250,9 +255,11 @@ class DataFetcher:
         rows = c.fetchall()
         conn.close()
         cols = [
-            "id", "window_start", "decision_ts", "side", "p_up", "confidence",
-            "p_logistic", "p_xgboost", "p_lstm", "p_bayesian", "implied_up",
-            "resolved_up", "correct", "features_json",
+            "id", "window_start", "decision_ts", "side",
+            "p_model_up", "raw_edge", "net_ev", "bet_price", "implied_up",
+            "p_logistic", "p_xgboost", "p_lstm", "p_bayesian",
+            "ev_up", "ev_down",
+            "resolved_up", "correct", "realised_ev", "features_json",
         ]
         return [dict(zip(cols, r)) for r in rows]
 
@@ -262,38 +269,60 @@ class DataFetcher:
         c    = conn.cursor()
         c.execute("""
             INSERT INTO decisions (
-                window_start, decision_ts, side, p_up, confidence,
-                p_logistic, p_xgboost, p_lstm, p_bayesian, implied_up,
-                resolved_up, correct, features_json
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                window_start, decision_ts, side,
+                p_model_up, raw_edge, net_ev, bet_price, implied_up,
+                p_logistic, p_xgboost, p_lstm, p_bayesian,
+                ev_up, ev_down,
+                resolved_up, correct, realised_ev, features_json
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             d.get("window_start"),
             d.get("decision_ts"),
             d.get("side"),
-            d.get("p_up"),
-            d.get("confidence"),
+            d.get("p_model_up"),
+            d.get("raw_edge"),
+            d.get("net_ev"),
+            d.get("bet_price"),
+            d.get("implied_up"),
             d.get("p_logistic"),
             d.get("p_xgboost"),
             d.get("p_lstm"),
             d.get("p_bayesian"),
-            d.get("implied_up"),
+            d.get("ev_up"),
+            d.get("ev_down"),
             d.get("resolved_up"),
             d.get("correct"),
+            d.get("realised_ev"),
             d.get("features_json"),
         ))
         conn.commit()
         conn.close()
 
     def update_decision_outcome(self, window_start: int, resolved_up: bool):
-        """Update the resolution outcome for a window's decision."""
+        """Update the resolution outcome and realised EV for a window's decision."""
         conn = sqlite3.connect(self._db_path)
         c    = conn.cursor()
         resolved_int = 1 if resolved_up else 0
+        # realised_ev: if correct → (1 - bet_price), else → (-bet_price)
         c.execute(
-            "UPDATE decisions SET resolved_up=?, correct=("
-            "  CASE WHEN (side='UP' AND ?=1) OR (side='DOWN' AND ?=0) THEN 1 ELSE 0 END"
-            ") WHERE window_start=? AND resolved_up IS NULL",
-            (resolved_int, resolved_int, resolved_int, window_start),
+            """
+            UPDATE decisions SET
+                resolved_up = ?,
+                correct = (
+                    CASE WHEN (side='UP' AND ?=1) OR (side='DOWN' AND ?=0)
+                         THEN 1 ELSE 0 END
+                ),
+                realised_ev = (
+                    CASE WHEN (side='UP' AND ?=1) OR (side='DOWN' AND ?=0)
+                         THEN (1.0 - COALESCE(bet_price, 0.5))
+                         ELSE (-COALESCE(bet_price, 0.5)) END
+                )
+            WHERE window_start = ? AND resolved_up IS NULL
+            """,
+            (resolved_int,
+             resolved_int, resolved_int,
+             resolved_int, resolved_int,
+             window_start),
         )
         conn.commit()
         conn.close()

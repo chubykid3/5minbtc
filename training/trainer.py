@@ -324,9 +324,20 @@ class Trainer:
 
     def backtest(self, n_windows: int = 500) -> Dict:
         """
-        Simple walk-forward accuracy check on the most recent N windows.
-        Returns accuracy metrics dict.
+        EV-aware walk-forward backtest on the most recent N windows.
+
+        Key metrics:
+          - Directional accuracy (baseline)
+          - Accuracy when model has positive net EV (the bets that matter)
+          - Accuracy when betting AGAINST the crowd (contra-crowd bets)
+          - Simulated realised EV per bet (ignoring historical implied odds —
+            we assume 50/50 since we don't have historical Polymarket data,
+            so contra-crowd stats are not available in backtest)
+          - Win rate by delta_pct quartile (regime-aware)
         """
+        from models.ensemble import compute_ev, polymarket_fee_drag
+        from config import MIN_EV_THRESHOLD, HIGH_CONF_EV
+
         candles = self.fetcher.get_candles(RETRAIN_LOOKBACK_DAYS)
         windows = self.fetcher.get_5m_windows(RETRAIN_LOOKBACK_DAYS)
 
@@ -335,39 +346,76 @@ class Trainer:
             return {}
 
         test_windows = windows[-(n_windows):]
-
         X, y, meta = self._build_feature_matrix(candles, test_windows)
         if len(X) == 0:
             return {}
 
-        correct_total  = 0
-        correct_hc     = 0   # high-confidence only
-        n_hc           = 0
-        p_ups          = []
+        # Backtest assumes implied = 0.5 (no historical Polymarket odds available).
+        # This gives us a conservative directional accuracy estimate;
+        # real EV depends on what the market actually priced at T=150.
+        implied_up = 0.5
 
-        for i, (x_row, label) in enumerate(zip(X, y)):
+        correct_total  = 0
+        correct_hc     = 0
+        n_hc           = 0
+        total_ev       = 0.0
+        delta_buckets: Dict[str, list] = {"small": [], "medium": [], "large": [], "extreme": []}
+
+        for x_row, label, win in zip(X, y, meta):
             feat_dict = dict(zip(FEATURE_NAMES, x_row.tolist()))
-            p_up, side, conf, _ = self.ensemble.predict(
-                x_row, feat_dict, None, 0.5
+            p_model, side, raw_edge, net_ev, _ = self.ensemble.predict(
+                x_row, feat_dict, None, implied_up
             )
-            p_ups.append(p_up)
+
             predicted_up = side == "UP"
-            if predicted_up == bool(label):
+            correct      = predicted_up == bool(label)
+
+            if correct:
                 correct_total += 1
-            if abs(p_up - 0.5) > 0.08:
+
+            # Realised EV per bet (at assumed 50/50 market)
+            bet_price = implied_up if side == "UP" else (1.0 - implied_up)
+            ev_realised = (1.0 - bet_price) if correct else (-bet_price)
+            total_ev += ev_realised
+
+            # High-confidence (positive net EV above threshold)
+            if net_ev >= MIN_EV_THRESHOLD:
                 n_hc += 1
-                if predicted_up == bool(label):
+                if correct:
                     correct_hc += 1
 
-        total_acc = correct_total / len(X) if len(X) > 0 else 0.0
-        hc_acc    = correct_hc / n_hc if n_hc > 0 else 0.0
+            # Bucket by displacement magnitude at T=150
+            abs_delta = abs(win.get("delta_pct", 0.0))
+            if abs_delta < 0.001:
+                delta_buckets["small"].append(correct)
+            elif abs_delta < 0.003:
+                delta_buckets["medium"].append(correct)
+            elif abs_delta < 0.006:
+                delta_buckets["large"].append(correct)
+            else:
+                delta_buckets["extreme"].append(correct)
 
+        n = len(X)
         result = {
-            "n_windows":       len(X),
-            "total_accuracy":  round(total_acc, 4),
-            "high_conf_accuracy": round(hc_acc, 4),
-            "high_conf_count": n_hc,
-            "up_rate":         round(float(np.mean(y)), 4),
+            "n_windows":            n,
+            "total_accuracy":       round(correct_total / n, 4) if n else 0,
+            "high_ev_accuracy":     round(correct_hc / n_hc, 4) if n_hc else 0,
+            "high_ev_count":        n_hc,
+            "avg_realised_ev":      round(total_ev / n, 4) if n else 0,
+            "up_rate":              round(float(np.mean(y)), 4),
+            # Accuracy by first-half displacement magnitude
+            "acc_small_delta":      round(np.mean(delta_buckets["small"]),   4) if delta_buckets["small"]   else None,
+            "acc_medium_delta":     round(np.mean(delta_buckets["medium"]),  4) if delta_buckets["medium"]  else None,
+            "acc_large_delta":      round(np.mean(delta_buckets["large"]),   4) if delta_buckets["large"]   else None,
+            "acc_extreme_delta":    round(np.mean(delta_buckets["extreme"]), 4) if delta_buckets["extreme"] else None,
+            "n_small":              len(delta_buckets["small"]),
+            "n_medium":             len(delta_buckets["medium"]),
+            "n_large":              len(delta_buckets["large"]),
+            "n_extreme":            len(delta_buckets["extreme"]),
+            "note": (
+                "Implied prob assumed 0.50 throughout (no historical Polymarket "
+                "data). Live EV depends on actual market odds at T=150."
+            ),
         }
         log.info(f"Backtest results: {result}")
         return result

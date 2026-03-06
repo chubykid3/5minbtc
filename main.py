@@ -205,49 +205,58 @@ class DecisionBot:
         # For now pass None; the ensemble handles the fallback
         lstm_seq = self._build_lstm_sequence()
 
-        # Ensemble prediction
+        # Snapshot market odds at the exact decision moment
+        implied_up_at_decision = self.polymarket.implied_up_prob
+
+        # Ensemble prediction — returns (p_model_up, side, raw_edge, net_ev, sub_probas)
         try:
-            p_up, side, confidence, sub_probas = self.ensemble.predict(
+            p_model_up, side, raw_edge, net_ev, sub_probas = self.ensemble.predict(
                 feature_vec=feat_vec,
                 feature_dict=feat_dict,
                 lstm_sequence=lstm_seq,
-                implied_up_prob=self.polymarket.implied_up_prob,
+                implied_up_prob=implied_up_at_decision,
             )
         except Exception as e:
             log.error(f"Ensemble predict error: {e}. Defaulting UP.")
-            p_up, side, confidence = 0.5, "UP", 0.0
+            p_model_up, side, raw_edge, net_ev = 0.5, "UP", 0.0, 0.0
             sub_probas = {}
 
         # Store and log
         self._pending_decision = {
-            "window_start":  ws,
-            "side":          side,
-            "p_up":          p_up,
-            "confidence":    confidence,
-            "sub_probas":    sub_probas,
-            "ref_price":     self._ref_price,
-            "price_at_decision": current_price,
-            "features":      feat_dict,
+            "window_start":         ws,
+            "side":                 side,
+            "p_model_up":           p_model_up,
+            "raw_edge":             raw_edge,
+            "net_ev":               net_ev,
+            "implied_up":           implied_up_at_decision,
+            "sub_probas":           sub_probas,
+            "ref_price":            self._ref_price,
+            "price_at_decision":    current_price,
+            "features":             feat_dict,
         }
 
         self.logger.log_decision(
             window_start=ws,
             side=side,
-            p_up=p_up,
-            confidence=confidence,
+            p_model_up=p_model_up,
+            raw_edge=raw_edge,
+            net_ev=net_ev,
             sub_probas=sub_probas,
-            implied_up=self.polymarket.implied_up_prob,
+            implied_up=implied_up_at_decision,
             features=feat_dict,
         )
         self._decision_made_this_window = True
 
         # Console announcement
+        from config import HIGH_CONF_EV
         delta_pct = (current_price - self._ref_price) / self._ref_price * 100 if self._ref_price > 0 else 0
-        conf_str  = f"HIGH-CONF" if confidence >= 0.08 else "standard"
+        conf_str  = "HIGH-CONF" if abs(net_ev) >= HIGH_CONF_EV else "standard"
+        bet_price = implied_up_at_decision if side == "UP" else (1.0 - implied_up_at_decision)
         log.info(
             f"*** DECISION: {side} ({conf_str}) ***  "
-            f"P(UP)={p_up:.3f} | Δ={delta_pct:+.3f}% | "
-            f"Crowd={self.polymarket.implied_up_prob:.3f}"
+            f"P_model={p_model_up:.3f} | Market={implied_up_at_decision:.3f} | "
+            f"edge={raw_edge:+.3f} | net_ev={net_ev:+.3f} | "
+            f"buying@{bet_price:.3f} | Δ={delta_pct:+.3f}%"
         )
 
     def _on_window_close(self, ws: int, close_price: float):
@@ -260,12 +269,18 @@ class DecisionBot:
         if self._pending_decision and self._pending_decision.get("window_start") == ws:
             predicted_side = self._pending_decision["side"]
 
+        implied_at_decision = (
+            self._pending_decision.get("implied_up")
+            if self._pending_decision and self._pending_decision.get("window_start") == ws
+            else None
+        )
         self.logger.log_outcome(
             window_start=ws,
             ref_price=ref_price,
             close_price=close_price,
             resolved_up=resolved_up,
             predicted_side=predicted_side,
+            implied_up_at_decision=implied_at_decision,
         )
 
         # Update window history
@@ -362,6 +377,7 @@ class DecisionBot:
                         window_start=ws,
                         time_in_window=tiw,
                         feeds_status=feeds_status,
+                        current_implied=self.polymarket.implied_up_prob,
                     )
                     last_display = now
 
