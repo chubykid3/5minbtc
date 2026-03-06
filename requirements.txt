@@ -1,0 +1,24 @@
+# ── Core async & networking ───────────────────────────────────────────────────
+websockets>=12.0
+aiohttp>=3.9.0
+
+# ── Data & ML ─────────────────────────────────────────────────────────────────
+numpy>=1.24.0
+scipy>=1.11.0
+scikit-learn>=1.4.0
+xgboost>=2.0.0
+pandas>=2.1.0
+
+# ── Deep learning (LSTM) — optional but strongly recommended ──────────────────
+# Comment out if you cannot install TensorFlow on your system.
+# The bot runs without it (LSTM weight redistributed to XGBoost).
+tensorflow>=2.15.0
+
+# ── Blockchain / Chainlink oracle ─────────────────────────────────────────────
+web3>=6.15.0
+
+# ── Terminal display ──────────────────────────────────────────────────────────
+rich>=13.7.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dateutil>=2.8.0
