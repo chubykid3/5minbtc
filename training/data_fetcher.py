@@ -15,8 +15,8 @@ from typing import List, Tuple, Optional
 import aiohttp
 
 from config import (
-    BINANCE_REST_BASE,
-    BINANCE_SYMBOL,
+    KRAKEN_REST_BASE,
+    KRAKEN_SYMBOL,
     DB_FILE,
     RETRAIN_LOOKBACK_DAYS,
 )
@@ -85,15 +85,16 @@ class DataFetcher:
 
     async def fetch_historical_candles(self, days: int = RETRAIN_LOOKBACK_DAYS):
         """
-        Fetch 1-minute OHLCV candles from Binance for the last `days` days.
+        Fetch 1-minute OHLCV candles from Kraken for the last `days` days.
         Stores in SQLite. Returns count of new candles inserted.
+        Kraken OHLC returns up to 720 candles per call; paginate via `last`.
         """
-        end_ts   = int(time.time() * 1000)
-        start_ts = end_ts - days * 24 * 3600 * 1000
+        end_ts   = int(time.time())
+        start_ts = end_ts - days * 24 * 3600
 
-        log.info(f"Fetching {days} days of 1m candles from Binance...")
+        log.info(f"Fetching {days} days of 1m candles from Kraken...")
 
-        connector = aiohttp.TCPConnector(limit=5)
+        connector = aiohttp.TCPConnector(limit=3)
         inserted  = 0
 
         async with aiohttp.ClientSession(connector=connector) as session:
@@ -101,53 +102,71 @@ class DataFetcher:
             while current_ts < end_ts:
                 try:
                     params = {
-                        "symbol":    BINANCE_SYMBOL,
-                        "interval":  "1m",
-                        "startTime": current_ts,
-                        "limit":     1000,
+                        "pair":     KRAKEN_SYMBOL,
+                        "interval": 1,          # 1-minute candles
+                        "since":    current_ts,
                     }
                     async with session.get(
-                        f"{BINANCE_REST_BASE}/api/v3/klines",
+                        f"{KRAKEN_REST_BASE}/0/public/OHLC",
                         params=params,
                         timeout=aiohttp.ClientTimeout(total=15),
                     ) as resp:
                         if resp.status != 200:
-                            log.error(f"Binance klines API error: {resp.status}")
+                            log.error(f"Kraken OHLC API error: {resp.status}")
                             await asyncio.sleep(5)
                             continue
 
                         data = await resp.json()
-                        if not data:
+                        errors = data.get("error", [])
+                        if errors:
+                            log.error(f"Kraken API error: {errors}")
+                            await asyncio.sleep(5)
+                            continue
+
+                        result = data.get("result", {})
+                        # Key is "XXBTZUSD" for XBTUSD; find whichever key isn't "last"
+                        candles = None
+                        for key, val in result.items():
+                            if key != "last":
+                                candles = val
+                                break
+
+                        if not candles:
                             break
 
                         rows = []
-                        for k in data:
+                        for k in candles:
+                            # Kraken: [time, open, high, low, close, vwap, volume, count]
+                            open_time_s = int(k[0])
+                            if open_time_s >= end_ts:
+                                break
                             rows.append((
-                                int(k[0]),    # open_time
-                                float(k[1]),  # open
-                                float(k[2]),  # high
-                                float(k[3]),  # low
-                                float(k[4]),  # close
-                                float(k[5]),  # volume
-                                int(k[6]),    # close_time
+                                open_time_s * 1000,        # open_time ms
+                                float(k[1]),               # open
+                                float(k[2]),               # high
+                                float(k[3]),               # low
+                                float(k[4]),               # close
+                                float(k[6]),               # volume
+                                (open_time_s + 59) * 1000, # close_time ms (approx)
                             ))
 
-                        conn = sqlite3.connect(self._db_path)
-                        c    = conn.cursor()
-                        c.executemany(
-                            "INSERT OR IGNORE INTO candles_1m VALUES (?,?,?,?,?,?,?)",
-                            rows,
-                        )
-                        inserted += c.rowcount
-                        conn.commit()
-                        conn.close()
+                        if rows:
+                            conn = sqlite3.connect(self._db_path)
+                            c    = conn.cursor()
+                            c.executemany(
+                                "INSERT OR IGNORE INTO candles_1m VALUES (?,?,?,?,?,?,?)",
+                                rows,
+                            )
+                            inserted += c.rowcount
+                            conn.commit()
+                            conn.close()
 
-                        last_ts = int(data[-1][0])
+                        last_ts = int(result.get("last", 0))
                         if last_ts <= current_ts:
                             break
-                        current_ts = last_ts + 60_000   # next minute
+                        current_ts = last_ts
 
-                        await asyncio.sleep(0.1)   # rate limit
+                        await asyncio.sleep(1.0)   # Kraken public API: ~1 req/sec
 
                 except Exception as e:
                     log.warning(f"Candle fetch error: {e}. Retrying in 5s...")

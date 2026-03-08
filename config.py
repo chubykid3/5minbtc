@@ -62,12 +62,17 @@ LSTM_RETRAIN_DAYS = 7               # Retrain LSTM weekly
 MIN_TRAINING_SAMPLES = 500          # Don't train until we have this many rows
 LSTM_SEQUENCE_LENGTH = 20           # 20 prior windows as LSTM input
 
-# ─── Binance WebSocket ────────────────────────────────────────────────────────
+# ─── Kraken (replaces Binance — works globally without geo-restrictions) ──────
+KRAKEN_REST_BASE    = "https://api.kraken.com"
+KRAKEN_WS_BASE      = "wss://ws.kraken.com/v2"
+KRAKEN_SYMBOL       = "XBTUSD"     # Kraken name for BTC/USD
+ORDERBOOK_DEPTH     = 10            # Top 10 levels
+
+# ─── Binance (kept for reference, no longer used) ─────────────────────────────
 BINANCE_WS_BASE     = "wss://stream.binance.com:9443/stream"
 BINANCE_REST_BASE   = "https://api.binance.com"
 BINANCE_SYMBOL      = "BTCUSDT"
 BINANCE_SYMBOL_LOWER = "btcusdt"
-ORDERBOOK_DEPTH     = 10            # Top 10 levels
 
 # ─── Chainlink Oracle ─────────────────────────────────────────────────────────
 # Chainlink BTC/USD Aggregator on Ethereum Mainnet
