@@ -15,8 +15,8 @@ from typing import List, Tuple, Optional
 import aiohttp
 
 from config import (
-    KRAKEN_REST_BASE,
-    KRAKEN_SYMBOL,
+    COINBASE_REST_BASE,
+    COINBASE_PRODUCT_ID,
     DB_FILE,
     RETRAIN_LOOKBACK_DAYS,
 )
@@ -85,14 +85,16 @@ class DataFetcher:
 
     async def fetch_historical_candles(self, days: int = RETRAIN_LOOKBACK_DAYS):
         """
-        Fetch 1-minute OHLCV candles from Kraken for the last `days` days.
+        Fetch 1-minute OHLCV candles from Coinbase Exchange (ex-Pro) for the
+        last `days` days. Coinbase returns up to 300 candles per request and
+        has months of 1-minute history. Works from US servers.
         Stores in SQLite. Returns count of new candles inserted.
-        Kraken OHLC returns up to 720 candles per call; paginate via `last`.
         """
         end_ts   = int(time.time())
         start_ts = end_ts - days * 24 * 3600
+        CHUNK    = 300 * 60   # 300 candles × 60 s each
 
-        log.info(f"Fetching {days} days of 1m candles from Kraken...")
+        log.info(f"Fetching {days} days of 1m candles from Coinbase...")
 
         connector = aiohttp.TCPConnector(limit=3)
         inserted  = 0
@@ -100,53 +102,39 @@ class DataFetcher:
         async with aiohttp.ClientSession(connector=connector) as session:
             current_ts = start_ts
             while current_ts < end_ts:
+                chunk_end = min(current_ts + CHUNK, end_ts)
                 try:
                     params = {
-                        "pair":     KRAKEN_SYMBOL,
-                        "interval": 1,          # 1-minute candles
-                        "since":    current_ts,
+                        "granularity": 60,
+                        "start":       current_ts,
+                        "end":         chunk_end,
                     }
                     async with session.get(
-                        f"{KRAKEN_REST_BASE}/0/public/OHLC",
+                        f"{COINBASE_REST_BASE}/products/{COINBASE_PRODUCT_ID}/candles",
                         params=params,
                         timeout=aiohttp.ClientTimeout(total=15),
                     ) as resp:
                         if resp.status != 200:
-                            log.error(f"Kraken OHLC API error: {resp.status}")
+                            log.error(f"Coinbase candles API error: {resp.status}")
                             await asyncio.sleep(5)
                             continue
 
                         data = await resp.json()
-                        errors = data.get("error", [])
-                        if errors:
-                            log.error(f"Kraken API error: {errors}")
-                            await asyncio.sleep(5)
+                        if not data:
+                            current_ts = chunk_end
                             continue
 
-                        result = data.get("result", {})
-                        # Key is "XXBTZUSD" for XBTUSD; find whichever key isn't "last"
-                        candles = None
-                        for key, val in result.items():
-                            if key != "last":
-                                candles = val
-                                break
-
-                        if not candles:
-                            break
-
                         rows = []
-                        for k in candles:
-                            # Kraken: [time, open, high, low, close, vwap, volume, count]
+                        for k in data:
+                            # Coinbase: [time, low, high, open, close, volume]
                             open_time_s = int(k[0])
-                            if open_time_s >= end_ts:
-                                break
                             rows.append((
                                 open_time_s * 1000,        # open_time ms
-                                float(k[1]),               # open
+                                float(k[3]),               # open
                                 float(k[2]),               # high
-                                float(k[3]),               # low
+                                float(k[1]),               # low
                                 float(k[4]),               # close
-                                float(k[6]),               # volume
+                                float(k[5]),               # volume
                                 (open_time_s + 59) * 1000, # close_time ms (approx)
                             ))
 
@@ -161,12 +149,8 @@ class DataFetcher:
                             conn.commit()
                             conn.close()
 
-                        last_ts = int(result.get("last", 0))
-                        if last_ts <= current_ts:
-                            break
-                        current_ts = last_ts
-
-                        await asyncio.sleep(1.0)   # Kraken public API: ~1 req/sec
+                        current_ts = chunk_end
+                        await asyncio.sleep(0.2)   # Coinbase rate limit is generous
 
                 except Exception as e:
                     log.warning(f"Candle fetch error: {e}. Retrying in 5s...")

@@ -62,11 +62,15 @@ LSTM_RETRAIN_DAYS = 7               # Retrain LSTM weekly
 MIN_TRAINING_SAMPLES = 500          # Don't train until we have this many rows
 LSTM_SEQUENCE_LENGTH = 20           # 20 prior windows as LSTM input
 
-# ─── Kraken (replaces Binance — works globally without geo-restrictions) ──────
+# ─── Kraken (live WebSocket feed — works globally without geo-restrictions) ───
 KRAKEN_REST_BASE    = "https://api.kraken.com"
 KRAKEN_WS_BASE      = "wss://ws.kraken.com/v2"
 KRAKEN_SYMBOL       = "XBTUSD"     # Kraken name for BTC/USD
 ORDERBOOK_DEPTH     = 10            # Top 10 levels
+
+# ─── Coinbase (historical candle fetching — US-accessible, 30+ days of 1m data)
+COINBASE_REST_BASE  = "https://api.exchange.coinbase.com"
+COINBASE_PRODUCT_ID = "BTC-USD"
 
 # ─── Binance (kept for reference, no longer used) ─────────────────────────────
 BINANCE_WS_BASE     = "wss://stream.binance.com:9443/stream"
