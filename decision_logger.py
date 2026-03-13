@@ -228,6 +228,7 @@ class DecisionLogger:
         time_in_window:  float,
         feeds_status:    Optional[Dict] = None,
         current_implied: float = 0.5,
+        trader_status:   str = "",
     ):
         if not HAS_RICH:
             self._print_plain(current_price, reference_price,
@@ -280,7 +281,12 @@ class DecisionLogger:
                 icon  = "●" if status else "○"
                 parts.append(f"[{color}]{icon} {feed}[/]")
             console.print("  " + "   ".join(parts))
-            console.print()
+
+        # ── Trader status ─────────────────────────────────────────────────────
+        if trader_status:
+            t_color = "green" if "LIVE" in trader_status else "yellow"
+            console.print(f"  [{t_color}]💰 {trader_status}[/]")
+        console.print()
 
         # ── Recent decisions ──────────────────────────────────────────────────
         if self._decisions:

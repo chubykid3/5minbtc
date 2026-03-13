@@ -113,10 +113,39 @@ CHAINLINK_POLL_INTERVAL = 5         # Seconds between oracle polls
 
 # ─── Polymarket ───────────────────────────────────────────────────────────────
 POLYMARKET_REST_BASE  = "https://clob.polymarket.com"
+POLYMARKET_GAMMA_BASE = "https://gamma-api.polymarket.com"   # Market discovery API
 POLYMARKET_WS_BASE    = "wss://ws-subscriptions-clob.polymarket.com/ws/"
-# BTC 5-min market slug pattern — used for REST lookups
 POLYMARKET_BTC_MARKET_TAG = "btc-usd-5-minutes"
 POLYMARKET_POLL_INTERVAL  = 3       # Seconds between REST probability polls
+
+# ─── Polymarket Trading Credentials ──────────────────────────────────────────
+# Fill these in with your account details to enable live trading.
+#
+# Where to get these:
+#   1. Go to https://polymarket.com and connect your wallet
+#   2. Your PRIVATE_KEY = the Ethereum/Polygon private key of that wallet
+#   3. Go to Profile → API Keys → Create API Key to get KEY/SECRET/PASSPHRASE
+#   4. PROXY_ADDRESS = your wallet address (shown in your profile, starts with 0x)
+#
+# IMPORTANT: Keep these secret. Never commit real values to git.
+
+POLYMARKET_PRIVATE_KEY    = "FILL_IN_PRIVATE_KEY"       # 0x... Ethereum private key
+POLYMARKET_API_KEY        = "FILL_IN_API_KEY"           # From Polymarket profile → API Keys
+POLYMARKET_API_SECRET     = "FILL_IN_API_SECRET"        # From Polymarket profile → API Keys
+POLYMARKET_API_PASSPHRASE = "FILL_IN_API_PASSPHRASE"    # From Polymarket profile → API Keys
+POLYMARKET_PROXY_ADDRESS  = "FILL_IN_PROXY_ADDRESS"     # 0x... your wallet address
+POLYMARKET_CHAIN_ID       = 137                          # Polygon mainnet — do not change
+
+# ─── Betting / Risk Configuration ─────────────────────────────────────────────
+# Set ENABLE_LIVE_TRADING = True only after you've verified the bot works in
+# dry-run mode and you're comfortable with the risk.
+
+ENABLE_LIVE_TRADING      = False   # !! Must be True to place real trades !!
+BET_SIZE_USDC            = 5.0    # Base bet per trade in USDC
+MAX_BET_SIZE_USDC        = 20.0   # Cap on any single bet (for high-conf scaling)
+HIGH_CONF_BET_MULTIPLIER = 2.0    # Multiply base bet by this for HIGH-CONF decisions
+MAX_DAILY_LOSS_USDC      = 50.0   # Stop trading for the day if losses hit this
+MIN_LIQUIDITY_USDC       = 2.0    # Skip bet if order book has less than this
 
 # ─── Feature Engineering ──────────────────────────────────────────────────────
 RSI_PERIOD           = 14

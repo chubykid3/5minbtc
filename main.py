@@ -56,6 +56,7 @@ from features.feature_engineer  import FeatureEngineer, feature_vector, FEATURE_
 from models.ensemble            import Ensemble
 from training.data_fetcher      import DataFetcher
 from training.trainer           import Trainer
+from trading.polymarket_trader  import PolymarketTrader
 from candle_store               import CandleStore
 from decision_logger            import DecisionLogger
 
@@ -94,6 +95,7 @@ class DecisionBot:
             self.binance, self.chainlink, self.polymarket, self.candle_store
         )
         self.logger         = DecisionLogger(self.fetcher)
+        self.trader         = PolymarketTrader()   # Trading execution
 
         # State
         self.skip_train     = skip_train
@@ -115,11 +117,12 @@ class DecisionBot:
         log.info("  BTC 5-Min Polymarket Decision Bot  STARTING UP")
         log.info("=" * 60)
 
-        # Start live feeds
+        # Start live feeds + trader
         await asyncio.gather(
             self.binance.start(),
             self.chainlink.start(),
             self.polymarket.start(),
+            self.trader.start(),
         )
 
         # Wait briefly for feeds to connect and get initial prices
@@ -259,6 +262,16 @@ class DecisionBot:
             f"buying@{bet_price:.3f} | Δ={delta_pct:+.3f}%"
         )
 
+        # ── Place the actual bet ───────────────────────────────────────────────
+        asyncio.create_task(self.trader.execute_trade(
+            window_start=ws,
+            side=side,
+            net_ev=net_ev,
+            implied_up_prob=implied_up_at_decision,
+            up_token_id=self.polymarket.up_token_id,
+            down_token_id=self.polymarket.down_token_id,
+        ))
+
     def _on_window_close(self, ws: int, close_price: float):
         """Called at T=300 when next window opens — record outcome."""
         ref_price   = self._ref_price
@@ -290,6 +303,9 @@ class DecisionBot:
             "delta_pct":    delta_pct,
         })
         self._window_history = self._window_history[-100:]
+
+        # Settle any open trade for this window
+        asyncio.create_task(self.trader.settle_trade(ws, resolved_up))
 
         self._pending_decision = None
 
@@ -378,6 +394,7 @@ class DecisionBot:
                         time_in_window=tiw,
                         feeds_status=feeds_status,
                         current_implied=self.polymarket.implied_up_prob,
+                        trader_status=self.trader.status_line(),
                     )
                     last_display = now
 
@@ -397,14 +414,21 @@ class DecisionBot:
             self.binance.stop(),
             self.chainlink.stop(),
             self.polymarket.stop(),
+            self.trader.stop(),
             return_exceptions=True,
         )
         stats = self.logger.session_stats()
+        ts    = self.trader.stats()
         log.info(
             f"Session complete. "
-            f"Decisions: {stats['total']} | "
-            f"Accuracy: {stats['accuracy']:.1%} | "
-            f"High-conf accuracy: {stats['high_conf_acc']:.1%}"
+            f"Predictions: {stats['total']} | Accuracy: {stats['accuracy']:.1%} | "
+            f"HC accuracy: {stats['high_conf_acc']:.1%}"
+        )
+        log.info(
+            f"Trading P&L: {ts['total']} trades | "
+            f"Accuracy: {ts['accuracy']:.1%} | "
+            f"Session P&L: ${ts['session_pnl']:+.2f} | "
+            f"Mode: {'LIVE' if ts['live'] else 'DRY-RUN'}"
         )
 
 
