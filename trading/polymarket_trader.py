@@ -68,9 +68,6 @@ class PolymarketTrader:
     def __init__(self):
         from config import (
             POLYMARKET_PRIVATE_KEY,
-            POLYMARKET_API_KEY,
-            POLYMARKET_API_SECRET,
-            POLYMARKET_API_PASSPHRASE,
             POLYMARKET_PROXY_ADDRESS,
             POLYMARKET_CHAIN_ID,
             ENABLE_LIVE_TRADING,
@@ -82,12 +79,9 @@ class PolymarketTrader:
             HIGH_CONF_EV,
         )
 
-        self.private_key    = POLYMARKET_PRIVATE_KEY
-        self.api_key        = POLYMARKET_API_KEY
-        self.api_secret     = POLYMARKET_API_SECRET
-        self.api_passphrase = POLYMARKET_API_PASSPHRASE
-        self.proxy_address  = POLYMARKET_PROXY_ADDRESS
-        self.chain_id       = POLYMARKET_CHAIN_ID
+        self.private_key   = POLYMARKET_PRIVATE_KEY
+        self.proxy_address = POLYMARKET_PROXY_ADDRESS
+        self.chain_id      = POLYMARKET_CHAIN_ID
 
         self.live_trading        = ENABLE_LIVE_TRADING
         self.base_bet            = BET_SIZE_USDC
@@ -134,11 +128,16 @@ class PolymarketTrader:
     def _init_client(self):
         """
         Connect to Polymarket CLOB.
+
+        Only needs POLYMARKET_PRIVATE_KEY + POLYMARKET_PROXY_ADDRESS.
+        API credentials (key/secret/passphrase) are derived automatically
+        from the private key via ClobClient.derive_api_key() — no manual
+        API key creation required.
+
         Gracefully handles: missing library, placeholder credentials, network errors.
         """
         try:
             from py_clob_client.client import ClobClient
-            from py_clob_client.clob_types import ApiCreds
         except ImportError:
             log.warning(
                 "py-clob-client not installed — trading disabled. "
@@ -146,37 +145,39 @@ class PolymarketTrader:
             )
             return
 
-        # Check that credentials have been filled in
-        placeholders = {"FILL_IN_PRIVATE_KEY", "FILL_IN_API_KEY", "FILL_IN_API_SECRET",
-                        "FILL_IN_API_PASSPHRASE", "FILL_IN_PROXY_ADDRESS", ""}
-        if (self.private_key in placeholders or
-                self.api_key in placeholders):
+        placeholders = {"FILL_IN_PRIVATE_KEY", "FILL_IN_PROXY_ADDRESS", ""}
+        if self.private_key in placeholders:
             log.warning(
-                "Polymarket credentials not configured. "
-                "Edit config.py and fill in POLYMARKET_PRIVATE_KEY, "
-                "POLYMARKET_API_KEY, etc. Bot will run in DRY-RUN mode."
+                "POLYMARKET_PRIVATE_KEY not set in config.py. "
+                "Bot will run in DRY-RUN mode (no real trades)."
             )
             self._credentials_ok = False
             return
 
         try:
-            creds = ApiCreds(
-                api_key=self.api_key,
-                api_secret=self.api_secret,
-                api_passphrase=self.api_passphrase,
-            )
-
             proxy = (
                 self.proxy_address
                 if self.proxy_address and self.proxy_address not in placeholders
                 else None
             )
 
+            # Build a key-only client first to derive API credentials
+            bare_client = ClobClient(
+                host="https://clob.polymarket.com",
+                key=self.private_key,
+                chain_id=self.chain_id,
+            )
+
+            # Derive API key/secret/passphrase from the wallet private key.
+            # This is a deterministic operation — no server-side account creation needed.
+            api_creds = bare_client.derive_api_key()
+
+            # Re-build client with derived credentials for L2 authenticated requests
             self._client = ClobClient(
                 host="https://clob.polymarket.com",
                 key=self.private_key,
                 chain_id=self.chain_id,
-                creds=creds,
+                creds=api_creds,
                 signature_type=0,   # 0 = EOA (direct wallet signing)
                 funder=proxy,
             )

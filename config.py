@@ -119,22 +119,29 @@ POLYMARKET_BTC_MARKET_TAG = "btc-usd-5-minutes"
 POLYMARKET_POLL_INTERVAL  = 3       # Seconds between REST probability polls
 
 # ─── Polymarket Trading Credentials ──────────────────────────────────────────
-# Fill these in with your account details to enable live trading.
+# Polymarket IS a Polygon wallet. Your USDC lives in a smart contract on
+# Polygon — there's no separate "Polymarket account" on a server.
 #
-# Where to get these:
-#   1. Go to https://polymarket.com and connect your wallet
-#   2. Your PRIVATE_KEY = the Ethereum/Polygon private key of that wallet
-#   3. Go to Profile → API Keys → Create API Key to get KEY/SECRET/PASSPHRASE
-#   4. PROXY_ADDRESS = your wallet address (shown in your profile, starts with 0x)
+# You only need TWO things:
+#
+#   POLYMARKET_PRIVATE_KEY
+#     The private key of the wallet your Polymarket account uses.
+#     - MetaMask login    → export from MetaMask (Account Details → Export Key)
+#     - Email/Google login → go to polymarket.com → Profile → Export Private Key
+#     Looks like: 0xabc123...  (64 hex chars after the 0x)
+#
+#   POLYMARKET_PROXY_ADDRESS
+#     Your wallet address (the 0x... shown in your Polymarket profile).
+#     Also visible in MetaMask at the top of the account panel.
+#
+# The API key/secret/passphrase are derived automatically from your private key
+# on first run — you do NOT need to create them separately.
 #
 # IMPORTANT: Keep these secret. Never commit real values to git.
 
-POLYMARKET_PRIVATE_KEY    = "FILL_IN_PRIVATE_KEY"       # 0x... Ethereum private key
-POLYMARKET_API_KEY        = "FILL_IN_API_KEY"           # From Polymarket profile → API Keys
-POLYMARKET_API_SECRET     = "FILL_IN_API_SECRET"        # From Polymarket profile → API Keys
-POLYMARKET_API_PASSPHRASE = "FILL_IN_API_PASSPHRASE"    # From Polymarket profile → API Keys
-POLYMARKET_PROXY_ADDRESS  = "FILL_IN_PROXY_ADDRESS"     # 0x... your wallet address
-POLYMARKET_CHAIN_ID       = 137                          # Polygon mainnet — do not change
+POLYMARKET_PRIVATE_KEY   = "FILL_IN_PRIVATE_KEY"    # 0x... (64 hex chars)
+POLYMARKET_PROXY_ADDRESS = "FILL_IN_PROXY_ADDRESS"  # 0x... your wallet address
+POLYMARKET_CHAIN_ID      = 137                       # Polygon mainnet — do not change
 
 # ─── Betting / Risk Configuration ─────────────────────────────────────────────
 # Set ENABLE_LIVE_TRADING = True only after you've verified the bot works in
