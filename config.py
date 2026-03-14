@@ -6,6 +6,18 @@ All tunable parameters and API endpoints in one place.
 import os
 from pathlib import Path
 
+# ─── Load .env file (local secrets, never committed to git) ───────────────────
+# Reads KEY=VALUE lines from .env in the project root.
+# Works without python-dotenv — no extra dependency required.
+_env_file = Path(__file__).parent / ".env"
+if _env_file.exists():
+    with open(_env_file) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _, _v = _line.partition("=")
+                os.environ.setdefault(_k.strip(), _v.strip())
+
 # ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
@@ -119,39 +131,37 @@ POLYMARKET_BTC_MARKET_TAG = "btc-usd-5-minutes"
 POLYMARKET_POLL_INTERVAL  = 3       # Seconds between REST probability polls
 
 # ─── Polymarket Trading Credentials ──────────────────────────────────────────
-# Polymarket IS a Polygon wallet. Your USDC lives in a smart contract on
-# Polygon — there's no separate "Polymarket account" on a server.
+# Secrets are loaded from a LOCAL .env file — never stored in this file.
+# .env is in .gitignore and will never be committed to GitHub.
 #
-# You only need TWO things:
+# Polymarket IS a Polygon wallet: your USDC lives in a smart contract on
+# Polygon, not on a centralized server. You need:
 #
 #   POLYMARKET_PRIVATE_KEY
 #     The private key of the wallet your Polymarket account uses.
-#     - MetaMask login    → export from MetaMask (Account Details → Export Key)
-#     - Email/Google login → go to polymarket.com → Profile → Export Private Key
-#     Looks like: 0xabc123...  (64 hex chars after the 0x)
+#     - MetaMask login    → Account Details → Export Private Key
+#     - Email/Google login → polymarket.com → Profile → Export Private Key
+#     Format: 0xabc123...  (64 hex chars after the 0x)
 #
 #   POLYMARKET_PROXY_ADDRESS
-#     Your wallet address (the 0x... shown in your Polymarket profile).
-#     Also visible in MetaMask at the top of the account panel.
+#     Your wallet address shown in your Polymarket profile (0x...).
 #
-# The API key/secret/passphrase are derived automatically from your private key
-# on first run — you do NOT need to create them separately.
-#
-# IMPORTANT: Keep these secret. Never commit real values to git.
+# Set these in your LOCAL .env file (see .env.example). DO NOT put real
+# values here. API key/secret/passphrase are derived automatically.
 
-POLYMARKET_PRIVATE_KEY   = "FILL_IN_PRIVATE_KEY"    # 0x... (64 hex chars)
-POLYMARKET_PROXY_ADDRESS = "FILL_IN_PROXY_ADDRESS"  # 0x... your wallet address
-POLYMARKET_CHAIN_ID      = 137                       # Polygon mainnet — do not change
+POLYMARKET_PRIVATE_KEY   = os.getenv("POLYMARKET_PRIVATE_KEY",   "")
+POLYMARKET_PROXY_ADDRESS = os.getenv("POLYMARKET_PROXY_ADDRESS",  "")
+POLYMARKET_CHAIN_ID      = 137   # Polygon mainnet — do not change
 
 # ─── Betting / Risk Configuration ─────────────────────────────────────────────
-# Set ENABLE_LIVE_TRADING = True only after you've verified the bot works in
-# dry-run mode and you're comfortable with the risk.
+# These are safe to commit — they're not secrets.
+# Set ENABLE_LIVE_TRADING via .env or flip it here after dry-run validation.
 
-ENABLE_LIVE_TRADING      = False   # !! Must be True to place real trades !!
-BET_SIZE_USDC            = 5.0    # Base bet per trade in USDC
+ENABLE_LIVE_TRADING      = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+BET_SIZE_USDC            = float(os.getenv("BET_SIZE_USDC",  "5.0"))
 MAX_BET_SIZE_USDC        = 20.0   # Cap on any single bet (for high-conf scaling)
 HIGH_CONF_BET_MULTIPLIER = 2.0    # Multiply base bet by this for HIGH-CONF decisions
-MAX_DAILY_LOSS_USDC      = 50.0   # Stop trading for the day if losses hit this
+MAX_DAILY_LOSS_USDC      = float(os.getenv("MAX_DAILY_LOSS_USDC", "50.0"))
 MIN_LIQUIDITY_USDC       = 2.0    # Skip bet if order book has less than this
 
 # ─── Feature Engineering ──────────────────────────────────────────────────────
